@@ -1998,6 +1998,17 @@ Code present:
 Flash Loader Protocol Specification
 \end_layout
 
+\begin_layout Standard
+\begin_inset Graphics
+	filename FlashLoading_protocol.png
+	lyxscale 60
+	scale 30
+
+\end_inset
+
+
+\end_layout
+
 \begin_layout Subsection
 Protocol Overview
 \end_layout

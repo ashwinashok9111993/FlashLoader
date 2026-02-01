@@ -1,148 +1,54 @@
 # STM32F103 UART Flash Loader
 
-Simple UART-based bootloader for STM32F103C8 using handshake-driven 8-byte chunk protocol.
+UART bootloader for STM32F103C8 with 5-second auto-boot timeout and handshake-driven 8-byte chunk protocol.
 
 ## Hardware
 - **MCU**: STM32F103C8 (64KB Flash, 20KB RAM)
-- **UART**: USART1 on PA9(TX)/PA10(RX), 115200 baud, 8N1
-- **Programmer**: STLink V2
-- **Serial**: /dev/ttyUSB0 (USB-UART adapter)
-
-## Memory Map
-```
-0x08000000 - 0x08001FFF  (8 KB)   Bootloader
-0x08002000 - 0x0800FFFF  (56 KB)  Application Space
-```
-
-## Features
-- **5-second auto-boot timeout**: Automatically jumps to application if no flashing activity
-- **Handshake-driven protocol**: ACK after each 8-byte chunk ensures reliable transfer
-- **Application validation**: Checks vector table validity before jumping
-- **Small footprint**: Bootloader ~6.3 KB, leaves 56 KB for application
-- **Reliable flash writing**: 1KB page buffering before flash operations
+- **UART**: PA9(TX)/PA10(RX), 115200 baud, 8N1
+- **Memory**: 8KB bootloader (0x08000000), 56KB app space (0x08002000)
 
 ## Quick Start
 
-### 1. Install Dependencies
 ```bash
-# Install Python serial library
-sudo apt install python3-serial
+# 1. Build and flash bootloader
+cd Simple_BootLoader && make && st-flash write build/Simple_BootLoader.bin 0x08000000
 
-# Or use pip (if not externally managed)
-pip3 install pyserial
+# 2. Build application  
+cd App1 && make
+
+# 3. Flash via UART (within 5-second window)
+st-flash reset && sleep 1 && python3 scripts/simple_flash.py -p /dev/ttyUSB0 -f App1/build/Simple_BootLoader.bin
 ```
 
-### 2. Build and Flash Bootloader
-```bash
-cd Simple_BootLoader
-make clean && make
-st-flash write build/Simple_BootLoader.bin 0x08000000
-st-flash reset
-```
-
-Expected output: ~6.3 KB bootloader binary
-
-### 3. Build Application
-```bash
-cd App1
-make clean && make
-```
-
-Expected output: ~4.4 KB application binary at `build/Simple_BootLoader.bin`
-
-### 4. Test Auto-Boot Feature
-The bootloader has a 5-second timeout. If no START command is received, it automatically jumps to the application.
-
-```bash
-# Reset and watch the transition
-st-flash reset
-sleep 1
-python3 scripts/serial_monitor.py /dev/ttyUSB0 115200
-
-# You should see:
-# BOOT      (repeated for ~5 seconds)
-# BOOT
-# === APP1 @ 0x08002000 ===
-# APP1      (repeated every second)
-```
-
-### 5. Flash Application via UART Bootloader
-```bash
-# Reset device and flash within 5 seconds
-st-flash reset
-sleep 1
-python3 scripts/simple_flash.py -p /dev/ttyUSB0 -f App1/build/Simple_BootLoader.bin
-
-# Monitor application after flashing
-sleep 2
-python3 scripts/serial_monitor.py /dev/ttyUSB0 115200
-```
-
-## Protocol Details
-
-### Handshake-Driven 8-Byte Chunk Protocol
-
-#### Boot Sequence
-1. Bootloader starts, sends "BOOT\r\n" every 500ms
-2. After 5 seconds with no START command, jumps to application
-3. Host sends 'S' (0x53) to start firmware transfer
-4. Bootloader responds with ACK (0x06)
-
-#### Data Transfer
-For each 8-byte chunk:
-```
-Host:       'D' (0x44) + [8 data bytes] + [1 checksum byte]
-Bootloader: ACK (0x06) or NAK (0x15)
-```
-
-Checksum: Simple sum of 8 bytes, masked to 8 bits: `sum(bytes) & 0xFF`
-
-#### End Transfer
-```
-Host:       'E' (0x45)
-Bootloader: ACK (0x06) then jump    # Bootloader (8 KB @ 0x08000000)
-│   ├── Core/
-│   │   ├── Inc/
-│   │   │   ├── main.h              # Main header
-│   │   │   ├── usart.h             # UART definitions
-│   │   │   └── gpio.h              # GPIO definitions
-│   │   └── Src/
-│   │       ├── main.c              # Bootloader logic
-│   │       ├── usart.c             # UART initialization
-│   │       └── gpio.c              # GPIO initialization
-│   ├── STM32F103XX_FLASH_UNIFIED.ld # Linker (8 KB @ 0x08000000)
-│   ├── Makefile                    # Build configuration
-│   └── build/                      # Build outputs
-│       └── Simple_BootLoader.bin   # Final binary
-├── App1/                           # Application (56 KB @ 0x08002000)
-│   ├── Core/Src/main.c             # Application with LED + UART
-│   ├── STM32F103XX_APP1.ld         # Linker (56 KB @ 0x08002000)
-│   └── build/
-│       └── Simple_BootLoader.bin   # Application binary
-├── scripts/
-│   ├── simple_flash.py             # UART flash tool
-│   └── serial_monitor.py           # UART monitor
-└── README.md                       # This file
-```
+## Protocol
+- Boot: Sends "BOOT" every 500ms for 5 seconds, then jumps to app
+- Transfer: 8-byte chunks with checksum validation
+- Commands: 'S' (start), 'D'+data+checksum (chunk), 'E' (end)
 
 ## Code Pitfalls and Solutions
 
-### 1. HAL_Delay() Not Working in Application
-**Problem**: After bootloader jumps to application, HAL_Delay() hangs forever.
+## Common Issues
 
-**Cause**: SysTick interrupt not configured after vector table relocation.
-
-**Solution**: Use busy-wait loops instead:
+### HAL_Delay() Hangs After Bootloader Jump
+Use busy loops instead:
 ```c
-// BAD - Will hang
-HAL_Delay(1000);
-
-// GOOD - Works reliably
-volatile uint32_t i;
-for (i = 0; i < 7200000; i++) {
-    __NOP();  // ~1 second at 72 MHz
-}
+// Replace HAL_Delay(1000) with:
+for (volatile uint32_t i = 0; i < 7200000; i++) __NOP();
 ```
+
+### Flash Transfer Errors  
+- Check ground connections and cable quality
+- Clear UART buffer before sending START command
+- Verify baud rate matches (115200)
+
+### Application Won't Start
+- Validate vector table before jumping
+- Avoid HAL_Delay() in application code
+
+## Key Files
+- **Bootloader**: [Simple_BootLoader/Core/Src/main.c](Simple_BootLoader/Core/Src/main.c)
+- **Application**: [App1/Core/Src/main.c](App1/Core/Src/main.c)
+- **Flash tool**: [scripts/simple_flash.py](scripts/simple_flash.py)
 
 ### 2. Debug Output on Same UART
 **Problem**: Debug messages corrupt protocol data.
