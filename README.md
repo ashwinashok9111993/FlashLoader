@@ -1,11 +1,11 @@
 # STM32F103 UART Flash Loader
 
-UART bootloader for STM32F103C8 with multiple flash methods: Python script (XModem-CRC) and ESP32 web interface.
+UART bootloader for STM32F103C8 with multiple flash methods: Python script (simple chunk protocol) and ESP32 web interface.
 
 ## 🚀 Flash Methods
 
 ### Method 1: Python Script (USB/Serial)
-Traditional USB-to-UART flashing using Python and XModem protocol.
+Traditional USB-to-UART flashing using Python and simple 8-byte chunk protocol.
 
 ### Method 2: ESP32 WiFi Flash Loader (NEW!)
 **Web-based wireless flashing** - Upload firmware through a browser interface!
@@ -32,7 +32,7 @@ cd Simple_BootLoader && make && st-flash write build/Simple_BootLoader.bin 0x080
 cd App1 && make
 
 # 3. Flash via UART
-python3 scripts/flash_loader.py -p /dev/ttyUSB0 -f App1/build/app.bin
+python3 scripts/simple_flash.py -p /dev/ttyUSB0 -f App1/build/app.bin
 ```
 
 ### Using ESP32 Web Interface
@@ -51,8 +51,10 @@ pio run -t uploadfs    # Upload web interface
 
 ## Protocol
 - Boot: Sends "BOOT" every 500ms for 5 seconds, then jumps to app
-- Transfer: 8-byte chunks with checksum validation
-- Commands: 'S' (start), 'D'+data+checksum (chunk), 'E' (end)
+- Transfer: 8-byte chunks with simple checksum validation
+- Commands: 'S' (START), 'D'+8bytes+checksum (DATA), 'E' (END)
+- Buffering: 128 chunks (1KB) accumulated before flash page write
+- Checksum: Simple 8-bit sum of all bytes (mod 256)
 
 ## Code Pitfalls and Solutions
 
@@ -67,17 +69,19 @@ for (volatile uint32_t i = 0; i < 7200000; i++) __NOP();
 
 ### Flash Transfer Errors  
 - Check ground connections and cable quality
-- Clear UART buffer before sending START command
+- Clear UART buffer before sending START command (Python does 600ms delay + double clear)
 - Verify baud rate matches (115200)
+- Each chunk retries up to 3 times on checksum failure
 
 ### Application Won't Start
 - Validate vector table before jumping
 - Avoid HAL_Delay() in application code
 
 ## Key Files
-- **Bootloader**: [Simple_BootLoader/Core/Src/main.c](Simple_BootLoader/Core/Src/main.c)
-- **Application**: [App1/Core/Src/main.c](App1/Core/Src/main.c)
-- **Flash tool**: [scripts/simple_flash.py](scripts/simple_flash.py)
+- **Bootloader**: [Simple_BootLoader/Core/Src/main.c](Simple_BootLoader/Core/Src/main.c) - Simple chunk protocol implementation
+- **Application**: [App1/Core/Src/main.c](App1/Core/Src/main.c) - Sample application
+- **Python Flash Tool**: [scripts/simple_flash.py](scripts/simple_flash.py) - 8-byte chunk protocol
+- **ESP32 Flash Tool**: [esp32_FOTA_app/esp32_stm32_FlashLoader](esp32_FOTA_app/esp32_stm32_FlashLoader) - WiFi web interface
 
 ### 2. Debug Output on Same UART
 **Problem**: Debug messages corrupt protocol data.
@@ -240,11 +244,12 @@ st-flash reset
 
 ## Performance
 
-- **Transfer rate**: ~700 bytes/second (115200 baud, 8-byte chunks)
-- **Flash time**: ~6 seconds for 4 KB application
-- **Page write time**: ~100-200ms per 1 KB page
+- **Transfer rate**: ~700-800 bytes/second (115200 baud, 8-byte chunks with ACK handshake)
+- **Flash time**: ~6-8 seconds for 4.4 KB application
+- **Page write time**: ~20-40ms per 1 KB page (erase + program)
 - **Bootloader startup**: <100ms
-- **Auto-boot timeout**: 5 seconds
+- **Auto-boot timeout**: 5 seconds (if no START command received)
+- **Chunk timeout**: 1s normal, 3s after every 128 chunks (page write)
 2. Timeout: Bootloader didn't receive all 8 bytes
 3. Flash write failure: Application region locked
 
@@ -308,27 +313,30 @@ FlashLoader/
 
 ## Protocol Details
 
-### XModem-CRC Frame Structure
+### Simple Chunk Protocol Structure
 ```
-[SOH] [BlkNum] [~BlkNum] [128 data bytes] [CRC_H] [CRC_L]
- 0x01   0-255    255-0      payload         16-bit CRC
+Chunk Format: [CMD] [DATA] [CHECKSUM]
+              'D'  8 bytes  1 byte
 ```
 
 ### Control Characters
-- **SOH** = 0x01 (Start of Header)
+- **CMD_START** = 'S' (0x53) - Start firmware transfer
+- **CMD_DATA** = 'D' (0x44) - Data chunk follows
+- **CMD_END** = 'E' (0x45) - End transfer and write remaining data
 - **ACK** = 0x06 (Acknowledge)
 - **NAK** = 0x15 (Negative Acknowledge)
-- **EOT** = 0x04 (End of Transmission)
-- **CAN** = 0x18 (Cancel)
 
-### Flash Programming
-1. Bootloader waits for 'C' character (CRC mode)
-2. Host sends firmware in 128-byte frames
-3. Bootloader validates CRC-16 (polynomial 0x1021)
-4. Erases 1KB pages, programs halfwords
-5. Sends ACK for good frame, NAK for errors
-6. Host sends EOT when complete
-7. Bootloader jumps to application at 0x08002000
+### Flash Programming Flow
+1. Bootloader sends "BOOT\r\n" every 500ms (5-second timeout)
+2. Host clears UART buffers (600ms delay + double clear)
+3. Host sends 'S' (START command), waits for ACK
+4. For each 8-byte chunk:
+   - Host sends 'D' + 8 data bytes + checksum (sum of bytes mod 256)
+   - Bootloader verifies checksum and sends ACK or NAK
+   - Host retries up to 3 times on NAK/timeout
+5. Bootloader buffers 128 chunks (1KB) before erasing and writing flash page
+6. Host sends 'E' (END command) to flush remaining data
+7. Bootloader sends final ACK and jumps to application at 0x08002000
 
 ## Development
 
@@ -345,8 +353,9 @@ Current: ~4.4 KB (limit 56 KB)
 
 ### Debugging
 - Use `test_uart.py` to verify bootloader responds
-- Check CRC calculations match between Python and C
+- Check checksum calculations match between Python and C
 - Monitor with oscilloscope for baud rate verification
+- Enable debug output: `#define DEBUG_OUTPUT 1` in main.c
 - Add debug markers: `uart_send_byte(0xAA);` in code
 
 ## License

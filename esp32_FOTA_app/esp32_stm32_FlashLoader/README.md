@@ -1,6 +1,6 @@
 # ESP32 WiFi-based STM32 Flash Loader
 
-A web-based firmware flash loader for STM32 microcontrollers running on ESP32. Upload hex/bin files via a web interface and flash them wirelessly to your STM32 device using the XModem protocol over UART.
+A web-based firmware flash loader for STM32 microcontrollers running on ESP32. Upload hex/bin files via a web interface and flash them wirelessly to your STM32 device using a simple chunk-based protocol over UART.
 
 ## Features
 
@@ -8,7 +8,7 @@ A web-based firmware flash loader for STM32 microcontrollers running on ESP32. U
 - 📡 **WiFi Connectivity**: Works in both Access Point and Station modes
 - 📁 **File Upload**: Support for .bin and .hex firmware files
 - 📊 **Real-time Progress**: Live progress tracking during flash operation
-- 🔄 **XModem Protocol**: Reliable firmware transfer with CRC-16 validation
+- 🔄 **Simple Protocol**: Reliable 8-byte chunk transfer with checksum validation
 - ⚡ **Async Operation**: Non-blocking web server for smooth performance
 
 ## Hardware Requirements
@@ -131,24 +131,29 @@ Upload firmware file (multipart/form-data)
 ### POST `/api/reset`
 Reset flash state to idle
 
-## XModem Protocol Implementation
+## Simple Bootloader Protocol Implementation
 
-The flash loader uses XModem-CRC protocol for reliable data transfer:
+The flash loader uses a simple chunk-based protocol for reliable data transfer:
 
-- **Frame Size**: 128 bytes
-- **CRC**: 16-bit CRC-XMODEM (polynomial 0x1021)
-- **Retries**: Up to 3 retries per block
-- **Flow Control**: ACK/NAK/EOT handshaking
+- **Chunk Size**: 8 bytes per chunk
+- **Checksum**: 8-bit simple checksum (sum of all bytes)
+- **Retries**: Up to 8 retries per chunk
+- **Flow Control**: ACK/NAK handshaking
+- **Page Buffering**: 128 chunks (1KB) accumulated before flash write
 
 ### Protocol Flow
 
-1. ESP32 waits for "BOOT" message from STM32 bootloader
-2. ESP32 sends 'C' to initiate CRC mode
-3. For each 128-byte block:
-   - Send: SOH + BlockNum + ~BlockNum + Data[128] + CRC_H + CRC_L
+1. ESP32 waits for "BOOT" message from STM32 bootloader (5-second timeout)
+2. ESP32 clears UART buffers (600ms delay + double clear)
+3. ESP32 sends 'S' (START command) and waits for ACK
+4. For each 8-byte chunk:
+   - Calculate simple checksum: sum of all 8 bytes (mod 256)
+   - Send: 'D' (DATA command) + 8 bytes + checksum byte
    - Wait for: ACK (success) or NAK (retry)
-4. Send EOT (End of Transmission)
-5. Wait for final ACK
+   - Retry up to 8 times on failure
+   - Use extended timeout (3s) after every 128 chunks (page write completion)
+5. ESP32 sends 'E' (END command) for final flash write
+6. Wait for final ACK confirming application jump
 
 ## Troubleshooting
 
@@ -200,7 +205,12 @@ Edit in `src/main.cpp`:
 
 ### Adjust Retry Settings
 ```cpp
-#define MAX_RETRIES 3  // Number of retries per block
+#define MAX_RETRIES 8  // Number of retries per chunk
+```
+
+### Change Chunk Size
+```cpp
+#define CHUNK_SIZE 8  // 8 bytes per chunk (do not change - bootloader dependent)
 ```
 
 ## File Structure
@@ -225,14 +235,16 @@ esp32_stm32_FlashLoader/
 - LittleFS: ~256KB reserved for filesystem
 
 ### Performance
-- Upload speed: ~100KB/s (depends on network)
-- Flash speed: ~10-15 seconds for typical 32KB firmware
-- Progress updates: Every 500ms during flash operation
+- Upload speed: ~50-100KB/s over WiFi (depends on signal strength)
+- Flash speed: ~1.2 KB/s to STM32 via UART at 115200 baud
+- Total time for 4.4KB firmware: ~8-10 seconds (upload + conversion + flash)
+- Progress updates: Calculated per chunk, displayed every 128 chunks
 
 ### Security Notes
-- Default AP password should be changed for production
-- No authentication implemented (add if needed)
-- Files stored temporarily in RAM during upload
+- Default AP password should be changed for production use
+- No authentication implemented (add HTTP Basic Auth if needed)
+- Files stored temporarily in RAM during upload (not persisted)
+- Firmware buffer allocated dynamically up to 256KB
 
 ## Credits
 
@@ -246,6 +258,7 @@ This project is provided as-is for educational and development purposes.
 
 For issues or questions:
 1. Check serial monitor output for detailed debug information
-2. Verify all hardware connections
-3. Ensure STM32 bootloader is compatible with XModem-CRC protocol
-4. Test with the original Python script first to verify bootloader functionality
+2. Verify all hardware connections (especially TX/RX crossover and GND)
+3. Ensure STM32 bootloader is compatible with simple 8-byte chunk protocol
+4. Test with the Python script (`simple_flash.py`) first to verify bootloader functionality
+5. Monitor bootloader "BOOT" messages to confirm bootloader is running
