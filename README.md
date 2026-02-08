@@ -1,6 +1,20 @@
 # STM32F103 UART Flash Loader
 
-UART bootloader for STM32F103C8 with 5-second auto-boot timeout and handshake-driven 8-byte chunk protocol.
+UART bootloader for STM32F103C8 with multiple flash methods: Python script (XModem-CRC) and ESP32 web interface.
+
+## 🚀 Flash Methods
+
+### Method 1: Python Script (USB/Serial)
+Traditional USB-to-UART flashing using Python and XModem protocol.
+
+### Method 2: ESP32 WiFi Flash Loader (NEW!)
+**Web-based wireless flashing** - Upload firmware through a browser interface!
+- 🌐 Beautiful web UI with drag & drop
+- 📊 Real-time progress tracking  
+- 📡 WiFi connectivity (AP or Station mode)
+- ⚡ No USB cable needed after setup
+
+👉 **See [esp32_FOTA_app/esp32_stm32_FlashLoader](esp32_FOTA_app/esp32_stm32_FlashLoader)** for complete documentation.
 
 ## Hardware
 - **MCU**: STM32F103C8 (64KB Flash, 20KB RAM)
@@ -9,6 +23,7 @@ UART bootloader for STM32F103C8 with 5-second auto-boot timeout and handshake-dr
 
 ## Quick Start
 
+### Using Python Script
 ```bash
 # 1. Build and flash bootloader
 cd Simple_BootLoader && make && st-flash write build/Simple_BootLoader.bin 0x08000000
@@ -16,8 +31,22 @@ cd Simple_BootLoader && make && st-flash write build/Simple_BootLoader.bin 0x080
 # 2. Build application  
 cd App1 && make
 
-# 3. Flash via UART (within 5-second window)
-st-flash reset && sleep 1 && python3 scripts/simple_flash.py -p /dev/ttyUSB0 -f App1/build/Simple_BootLoader.bin
+# 3. Flash via UART
+python3 scripts/flash_loader.py -p /dev/ttyUSB0 -f App1/build/app.bin
+```
+
+### Using ESP32 Web Interface
+```bash
+# 1. Setup ESP32 flash loader
+cd esp32_FOTA_app/esp32_stm32_FlashLoader
+pio run -t upload      # Upload ESP32 firmware
+pio run -t uploadfs    # Upload web interface
+
+# 2. Connect to WiFi "ESP32_FlashLoader" (password: flashloader123)
+
+# 3. Open browser: http://192.168.4.1
+
+# 4. Upload & flash your firmware!
 ```
 
 ## Protocol

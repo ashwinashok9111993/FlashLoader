@@ -1,4 +1,4 @@
-ARM GAS  /tmp/ccKK8L8x.s 			page 1
+ARM GAS  /tmp/ccofFUss.s 			page 1
 
 
    1              		.cpu cortex-m3
@@ -58,7 +58,7 @@ ARM GAS  /tmp/ccKK8L8x.s 			page 1
   30:Core/Src/gpio.c **** /*----------------------------------------------------------------------------*/
   31:Core/Src/gpio.c **** /* USER CODE BEGIN 1 */
   32:Core/Src/gpio.c **** 
-ARM GAS  /tmp/ccKK8L8x.s 			page 2
+ARM GAS  /tmp/ccofFUss.s 			page 2
 
 
   33:Core/Src/gpio.c **** /* USER CODE END 1 */
@@ -118,7 +118,7 @@ ARM GAS  /tmp/ccKK8L8x.s 			page 1
   64              	.LBB3:
   65              		.loc 1 49 3 view .LVU10
   66              		.loc 1 49 3 view .LVU11
-ARM GAS  /tmp/ccKK8L8x.s 			page 3
+ARM GAS  /tmp/ccofFUss.s 			page 3
 
 
   67 0022 9A69     		ldr	r2, [r3, #24]
@@ -178,7 +178,7 @@ ARM GAS  /tmp/ccKK8L8x.s 			page 1
  111              		.loc 1 59 3 is_stmt 1 view .LVU28
  112              		.loc 1 59 25 is_stmt 0 view .LVU29
  113 0060 0223     		movs	r3, #2
-ARM GAS  /tmp/ccKK8L8x.s 			page 4
+ARM GAS  /tmp/ccofFUss.s 			page 4
 
 
  114 0062 0793     		str	r3, [sp, #28]
@@ -209,14 +209,14 @@ ARM GAS  /tmp/ccKK8L8x.s 			page 1
  137              		.file 3 "/opt/st/stm32cubeclt_1.20.0/GNU-tools-for-STM32/arm-none-eabi/include/sys/_stdint.h"
  138              		.file 4 "Drivers/CMSIS/Device/ST/STM32F1xx/Include/stm32f103xb.h"
  139              		.file 5 "Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_hal_gpio.h"
-ARM GAS  /tmp/ccKK8L8x.s 			page 5
+ARM GAS  /tmp/ccofFUss.s 			page 5
 
 
 DEFINED SYMBOLS
                             *ABS*:00000000 gpio.c
-     /tmp/ccKK8L8x.s:19     .text.MX_GPIO_Init:00000000 $t
-     /tmp/ccKK8L8x.s:25     .text.MX_GPIO_Init:00000000 MX_GPIO_Init
-     /tmp/ccKK8L8x.s:129    .text.MX_GPIO_Init:00000070 $d
+     /tmp/ccofFUss.s:19     .text.MX_GPIO_Init:00000000 $t
+     /tmp/ccofFUss.s:25     .text.MX_GPIO_Init:00000000 MX_GPIO_Init
+     /tmp/ccofFUss.s:129    .text.MX_GPIO_Init:00000070 $d
 
 UNDEFINED SYMBOLS
 HAL_GPIO_WritePin

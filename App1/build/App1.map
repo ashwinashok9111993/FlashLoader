@@ -1226,7 +1226,7 @@ LOAD /opt/st/stm32cubeclt_1.20.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eab
  libc.a(*)
  libm.a(*)
  libgcc.a(*)
-OUTPUT(build/Simple_BootLoader.elf elf32-littlearm)
+OUTPUT(build/App1.elf elf32-littlearm)
 LOAD linker stubs
 LOAD /opt/st/stm32cubeclt_1.20.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/13.3.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libc.a
 LOAD /opt/st/stm32cubeclt_1.20.0/GNU-tools-for-STM32/bin/../lib/gcc/arm-none-eabi/13.3.1/../../../../arm-none-eabi/lib/thumb/v7-m/nofp/libm.a

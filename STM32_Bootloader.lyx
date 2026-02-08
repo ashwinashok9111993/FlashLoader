@@ -4273,6 +4273,1267 @@ Final confirmation:
  Application jump initiated to 0x08002000
 \end_layout
 
+\begin_layout Section
+ESP32 WiFi-Based Flash Loader
+\end_layout
+
+\begin_layout Standard
+In addition to the Python command-line tool,
+ this flash loader system includes an ESP32-based WiFi flash loader that provides a web interface for remotely flashing STM32 firmware over UART.
+ This component eliminates the need for a PC with a serial connection,
+ enabling wireless firmware updates in embedded systems.
+\end_layout
+
+\begin_layout Subsection
+Overview and Architecture
+\end_layout
+
+\begin_layout Standard
+The ESP32 flash loader acts as a bridge between a WiFi-enabled client (web browser) and the STM32 bootloader via UART.
+ It implements:
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+WiFi Access Point or Station Mode:
+
+\series default
+ Creates its own WiFi network or connects to existing WiFi
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Async Web Server:
+
+\series default
+ Provides HTML interface for firmware upload and status monitoring
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Intel HEX Parser:
+
+\series default
+ Converts .hex files to binary format automatically
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Simple Bootloader Protocol:
+
+\series default
+ Communicates with STM32 using 8-byte chunk protocol
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Non-Blocking Operation:
+
+\series default
+ Uses FreeRTOS tasks to prevent web server blocking during flash
+\end_layout
+
+\begin_layout Subsection
+Hardware Configuration
+\end_layout
+
+\begin_layout Subsubsection
+Required Components
+\end_layout
+
+\begin_layout Itemize
+ESP32 development board (any variant with WiFi)
+\end_layout
+
+\begin_layout Itemize
+STM32F103C8 target board with bootloader
+\end_layout
+
+\begin_layout Itemize
+3 jumper wires for UART connection
+\end_layout
+
+\begin_layout Itemize
+USB power supply for ESP32 (5V)
+\end_layout
+
+\begin_layout Subsubsection
+Wiring Connections
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+ESP32 Pin     | STM32 Pin     | Function
+\end_layout
+
+\begin_layout Plain Layout
+
+------------- | ------------- | --------
+\end_layout
+
+\begin_layout Plain Layout
+
+GPIO17 (TX2)  | PA10 (RX)     | ESP32 transmits to STM32
+\end_layout
+
+\begin_layout Plain Layout
+
+GPIO16 (RX2)  | PA9 (TX)      | ESP32 receives from STM32
+\end_layout
+
+\begin_layout Plain Layout
+
+GND           | GND           | Common ground
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+
+\series bold
+Important:
+
+\series default
+ The ESP32 uses UART2 (HardwareSerial port 2) for STM32 communication,
+ leaving UART0 available for USB debugging.
+ Ensure proper voltage levels—
+both devices operate at 3.3V logic levels.
+\end_layout
+
+\begin_layout Subsection
+Software Architecture
+\end_layout
+
+\begin_layout Subsubsection
+Key Components
+\end_layout
+
+\begin_layout Standard
+
+\series bold
+1.
+ WiFi Configuration
+\end_layout
+
+\begin_layout Standard
+The ESP32 supports two WiFi modes:
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Access Point (AP) Mode (default):
+
+\series default
+ Creates WiFi network "ESP32_FlashLoader" with password "flashloader123"
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Station (STA) Mode:
+
+\series default
+ Connects to existing WiFi network (configure SSID/password in code)
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+// Configuration in main.cpp
+\end_layout
+
+\begin_layout Plain Layout
+
+#define WIFI_MODE_AP true  // Set to false for Station mode
+\end_layout
+
+\begin_layout Plain Layout
+
+const char* AP_SSID = "ESP32_FlashLoader";
+\end_layout
+
+\begin_layout Plain Layout
+
+const char* AP_PASSWORD = "flashloader123";
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+In AP mode,
+ the ESP32 is accessible at 
+\series bold
+http://192.168.4.1
+\series default
+.
+ In STA mode,
+ it receives an IP from the router via DHCP.
+\end_layout
+
+\begin_layout Standard
+
+\series bold
+2.
+ Async Web Server
+\end_layout
+
+\begin_layout Standard
+The flash loader uses ESPAsyncWebServer for non-blocking HTTP handling.
+ Key endpoints:
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+GET /:
+
+\series default
+ Serves index.html from LittleFS filesystem
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+GET /api/status:
+
+\series default
+ Returns JSON with current flash state,
+ progress percentage,
+ and status message
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+POST /api/upload:
+
+\series default
+ Receives firmware file (.hex or .bin),
+ stores in RAM,
+ and initiates flash process
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+POST /api/reset:
+
+\series default
+ Resets flash state to idle
+\end_layout
+
+\begin_layout Standard
+
+\series bold
+3.
+ Intel HEX Parser
+\end_layout
+
+\begin_layout Standard
+The ESP32 includes a hex-to-binary converter that processes Intel HEX format files:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+bool hexToBinary(const uint8_t* hexData,
+ size_t hexSize,
+\end_layout
+
+\begin_layout Plain Layout
+
+                 uint8_t* binBuffer,
+ size_t* binSize)
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+This function:
+\end_layout
+
+\begin_layout Itemize
+Parses Intel HEX records (data,
+ extended linear address,
+ EOF)
+\end_layout
+
+\begin_layout Itemize
+Handles 32-bit addressing via extended linear address records (0x04)
+\end_layout
+
+\begin_layout Itemize
+Converts ASCII hex characters to binary data
+\end_layout
+
+\begin_layout Itemize
+Produces a flat binary image suitable for STM32 flash
+\end_layout
+
+\begin_layout Standard
+This allows users to upload .hex files directly from development tools (STM32CubeIDE,
+ Keil,
+ etc.) without manual conversion.
+\end_layout
+
+\begin_layout Standard
+
+\series bold
+4.
+ Simple Bootloader Protocol Implementation
+\end_layout
+
+\begin_layout Standard
+The ESP32 implements the simple 8-byte chunk protocol:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+Protocol Sequence:
+\end_layout
+
+\begin_layout Plain Layout
+
+1.
+ Wait for "BOOT" message from STM32 bootloader (5-second timeout)
+\end_layout
+
+\begin_layout Plain Layout
+
+2.
+ Clear UART buffers (600ms delay + double clear to match Python tool)
+\end_layout
+
+\begin_layout Plain Layout
+
+3.
+ Send START command ('S') and wait for ACK (3-second timeout)
+\end_layout
+
+\begin_layout Plain Layout
+
+4.
+ For each 8-byte chunk:
+\end_layout
+
+\begin_layout Plain Layout
+
+   a.
+ Calculate 8-bit checksum (sum of all bytes)
+\end_layout
+
+\begin_layout Plain Layout
+
+   b.
+ Send DATA command ('D') + 8 bytes + checksum
+\end_layout
+
+\begin_layout Plain Layout
+
+   c.
+ Wait for ACK (1s normal,
+ 3s after page completion)
+\end_layout
+
+\begin_layout Plain Layout
+
+   d.
+ Retry up to 8 times on NAK or timeout
+\end_layout
+
+\begin_layout Plain Layout
+
+5.
+ Send END command ('E') and wait for final ACK
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Key implementation details:
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Timeout Management:
+
+\series default
+ Extended timeouts (3 seconds) after every 128 chunks to allow STM32 flash page write completion
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Retry Logic:
+
+\series default
+ Up to 8 retries per chunk with exponential backoff on communication errors
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Progress Tracking:
+
+\series default
+ Prints status every 128 chunks (matching Python tool behavior)
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Memory Management:
+
+\series default
+ Firmware buffer allocated dynamically,
+ freed after transfer completion
+\end_layout
+
+\begin_layout Standard
+
+\series bold
+5.
+ FreeRTOS Task Architecture
+\end_layout
+
+\begin_layout Standard
+To prevent blocking the async web server during flash operations,
+ the ESP32 uses FreeRTOS tasks:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+void flashTask(void* pvParameters) {
+\end_layout
+
+\begin_layout Plain Layout
+
+  FlashJob* job = (FlashJob*)pvParameters;
+\end_layout
+
+\begin_layout Plain Layout
+
+  flashSTM32(job->data,
+ job->size);
+\end_layout
+
+\begin_layout Plain Layout
+
+  free(job->data);
+\end_layout
+
+\begin_layout Plain Layout
+
+  free(job);
+\end_layout
+
+\begin_layout Plain Layout
+
+  vTaskDelete(NULL);
+\end_layout
+
+\begin_layout Plain Layout
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+The flash task:
+\end_layout
+
+\begin_layout Itemize
+Runs pinned to CPU core 1 (avoiding core 0 which handles WiFi/TCP stack)
+\end_layout
+
+\begin_layout Itemize
+Receives firmware data pointer and size via FlashJob structure
+\end_layout
+
+\begin_layout Itemize
+Updates global flash state and progress variables (volatile)
+\end_layout
+
+\begin_layout Itemize
+Self-deletes upon completion (automatic cleanup)
+\end_layout
+
+\begin_layout Standard
+The web server can continue serving status requests while flashing proceeds in the background.
+\end_layout
+
+\begin_layout Subsection
+Usage Instructions
+\end_layout
+
+\begin_layout Subsubsection
+Step 1:
+ Flash ESP32 Firmware
+\end_layout
+
+\begin_layout Standard
+Build and upload the ESP32 firmware using PlatformIO:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+cd esp32_FOTA_app/esp32_stm32_FlashLoader
+\end_layout
+
+\begin_layout Plain Layout
+
+pio run --target upload
+\end_layout
+
+\begin_layout Plain Layout
+
+pio device monitor  # Optional:
+ view serial debug output
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+The ESP32 will start in Access Point mode by default.
+\end_layout
+
+\begin_layout Subsubsection
+Step 2:
+ Prepare Web Interface Files
+\end_layout
+
+\begin_layout Standard
+Upload the web interface (index.html) to ESP32's LittleFS filesystem:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+pio run --target uploadfs
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+This stores the HTML interface in flash memory,
+ making it accessible to the web server.
+\end_layout
+
+\begin_layout Subsubsection
+Step 3:
+ Connect to ESP32 WiFi
+\end_layout
+
+\begin_layout Itemize
+On your laptop/smartphone,
+ connect to WiFi network "ESP32_FlashLoader"
+\end_layout
+
+\begin_layout Itemize
+Enter password:
+ "flashloader123"
+\end_layout
+
+\begin_layout Itemize
+Open web browser and navigate to 
+\series bold
+http://192.168.4.1
+\end_layout
+
+\begin_layout Subsubsection
+Step 4:
+ Upload and Flash Firmware
+\end_layout
+
+\begin_layout Standard
+In the web interface:
+\end_layout
+
+\begin_layout Enumerate
+Ensure STM32 is powered and connected via UART to ESP32
+\end_layout
+
+\begin_layout Enumerate
+Reset STM32 to enter bootloader mode (bootloader sends "BOOT" messages)
+\end_layout
+
+\begin_layout Enumerate
+Click "Choose File" and select your firmware (.hex or .bin file)
+\end_layout
+
+\begin_layout Enumerate
+Click "Upload and Flash"
+\end_layout
+
+\begin_layout Enumerate
+Monitor progress bar and status messages
+\end_layout
+
+\begin_layout Enumerate
+Wait for "Firmware transfer complete!" confirmation
+\end_layout
+
+\begin_layout Standard
+The STM32 bootloader will automatically jump to the new application after successful flash.
+\end_layout
+
+\begin_layout Subsection
+State Machine and Status Reporting
+\end_layout
+
+\begin_layout Standard
+The ESP32 maintains a global flash state machine:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+enum FlashState {
+\end_layout
+
+\begin_layout Plain Layout
+
+  IDLE,
+         // Ready to accept firmware
+\end_layout
+
+\begin_layout Plain Layout
+
+  IN_PROGRESS,
+   // Flashing active
+\end_layout
+
+\begin_layout Plain Layout
+
+  SUCCESS,
+       // Flash completed successfully
+\end_layout
+
+\begin_layout Plain Layout
+
+  FAILED
+        // Error occurred
+\end_layout
+
+\begin_layout Plain Layout
+
+};
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+Status is exposed via JSON API:
+\end_layout
+
+\begin_layout Standard
+\begin_inset listings
+inline false
+status open
+
+\begin_layout Plain Layout
+
+GET /api/status
+\end_layout
+
+\begin_layout Plain Layout
+
+{
+\end_layout
+
+\begin_layout Plain Layout
+
+  "state":
+ "in_progress",
+\end_layout
+
+\begin_layout Plain Layout
+
+  "progress":
+ 45,
+          // Percentage (0-100)
+\end_layout
+
+\begin_layout Plain Layout
+
+  "message":
+ "Transferring firmware..."
+\end_layout
+
+\begin_layout Plain Layout
+
+}
+\end_layout
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Standard
+The web interface polls this endpoint every 500ms to update the progress bar and status text.
+\end_layout
+
+\begin_layout Subsection
+Performance Characteristics
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Upload Speed:
+
+\series default
+ ~50-100 KB/s over WiFi (depends on signal strength)
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Flash Speed:
+
+\series default
+ ~1.2 KB/s to STM32 via UART at 115200 baud
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Total Time (4.4 KB firmware):
+
+\series default
+ ~8-10 seconds (including upload,
+ conversion,
+ and flash)
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Memory Usage:
+
+\series default
+ ~260 KB RAM for 256 KB firmware buffer (ESP32 has 520 KB total)
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Concurrent Connections:
+
+\series default
+ Supports multiple clients viewing status,
+ but only one flash operation at a time
+\end_layout
+
+\begin_layout Subsection
+Advantages of ESP32 Flash Loader
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Wireless Operation:
+
+\series default
+ No physical connection to PC required
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Remote Access:
+
+\series default
+ Flash firmware from smartphones,
+ tablets,
+ or laptops
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Embedded Integration:
+
+\series default
+ Can be permanently installed in products for field updates
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Hex File Support:
+
+\series default
+ Direct upload from IDE output without conversion
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+User-Friendly:
+
+\series default
+ Web interface eliminates need for command-line tools
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Status Monitoring:
+
+\series default
+ Real-time progress updates and error reporting
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Portable Power:
+
+\series default
+ USB power bank can power entire system (ESP32 + STM32)
+\end_layout
+
+\begin_layout Subsection
+Comparison:
+ Python Tool vs ESP32 Flash Loader
+\end_layout
+
+\begin_layout Standard
+\begin_inset Tabular
+<lyxtabular version="3" rows="9" columns="3">
+<features tabularvalignment="middle">
+<column alignment="left" valignment="top" width="0pt">
+<column alignment="left" valignment="top" width="0pt">
+<column alignment="left" valignment="top" width="0pt">
+<row>
+<cell alignment="left" valignment="top" topline="true" bottomline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+
+\series bold
+Feature
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" bottomline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+
+\series bold
+Python Tool
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" bottomline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+
+\series bold
+ESP32 Flash Loader
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Connection
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+USB-Serial cable
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+WiFi wireless
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Interface
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Command-line
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Web browser GUI
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Speed
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Faster (direct USB)
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Slower (WiFi + UART)
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Hex Support
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Requires pre-conversion
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Built-in hex parser
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Hardware
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+PC + USB cable
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+ESP32 + 3 wires
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Portability
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Requires PC/laptop
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Works with phone/tablet
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Field Deployment
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Not practical
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Ideal for embedded systems
+\end_layout
+
+\end_inset
+</cell>
+</row>
+<row>
+<cell alignment="left" valignment="top" topline="true" bottomline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Cost
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" bottomline="true" leftline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+Free (software only)
+\end_layout
+
+\end_inset
+</cell>
+<cell alignment="left" valignment="top" topline="true" bottomline="true" leftline="true" rightline="true" usebox="none">
+\begin_inset Text
+
+\begin_layout Plain Layout
+~$5-10 (ESP32 board)
+\end_layout
+
+\end_inset
+</cell>
+</row>
+</lyxtabular>
+
+\end_inset
+
+
+\end_layout
+
+\begin_layout Subsection
+Troubleshooting ESP32 Flash Loader
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Cannot connect to ESP32 WiFi:
+
+\series default
+ Verify AP mode is enabled;
+ check SSID/password;
+ reset ESP32
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Web page not loading:
+
+\series default
+ Ensure index.html is uploaded to LittleFS (pio run --target uploadfs)
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Upload hangs at 100%:
+
+\series default
+ Check ESP32 RAM availability;
+ reduce firmware size or increase heap
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+"Bootloader not detected":
+
+\series default
+ Verify UART wiring (TX↔RX crossover);
+ check STM32 is in bootloader mode
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Flash fails mid-transfer:
+
+\series default
+ Check UART baud rate (115200);
+ verify ground connection;
+ reduce WiFi interference
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Chunk failures/retries:
+
+\series default
+ Increase UART timeout values;
+ check for EMI on UART lines
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+ESP32 crashes during flash:
+
+\series default
+ Insufficient RAM—
+reduce firmware buffer size or use external PSRAM
+\end_layout
+
+\begin_layout Itemize
+
+\series bold
+Serial monitor shows "BOOT" but flash fails:
+
+\series default
+ Buffer clearing issue—
+increase delay after bootloader detection to 800ms
+\end_layout
+
 \begin_layout Subsection*
 Troubleshooting Common Issues
 \end_layout
